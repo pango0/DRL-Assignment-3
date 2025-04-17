@@ -6,10 +6,37 @@ from nes_py.wrappers import JoypadSpace
 import gym_super_mario_bros
 import matplotlib.pyplot as plt
 from gym_super_mario_bros.actions import COMPLEX_MOVEMENT
-
+import torch.nn as nn
+import torchvision.models as models
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 
+class DuelingResNet(nn.Module):
+    def __init__(self, in_channels, n_actions):
+        super().__init__()
+        self.backbone = models.resnet18(weights=None)
+        # Replace first conv to accept in_channels
+        self.backbone.conv1 = nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        # Remove final fc
+        self.backbone = nn.Sequential(*list(self.backbone.children())[:-1])
+        self.value_stream = nn.Sequential(
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Linear(256, 1)
+        )
+        self.adv_stream = nn.Sequential(
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Linear(256, n_actions)
+        )
+        
+    def forward(self, x):
+        x = x / 255.0
+        feat = self.backbone(x).view(x.size(0), -1)
+        value = self.value_stream(feat)
+        adv   = self.adv_stream(feat)
+        q = value + adv - adv.mean(dim=1, keepdim=True)
+        return q
 
 def init_env():
     env = gym_super_mario_bros.make('SuperMarioBros-v0')
@@ -35,7 +62,7 @@ def plot_scores(episodic_scores, average_scores, config, filename="train.png"):
     # 2) Plot
     episodes = list(range(1, len(episodic_scores) + 1))
     ax.plot(episodes, episodic_scores, label="Episodic Score")
-    ax.plot(episodes, average_scores,   label="Average Score")
+    ax.plot(episodes, average_scores,   label="Average 10 Episode Score")
     ax.set_xlabel("Episode")
     ax.set_ylabel("Score")
     ax.legend(loc="upper left")
