@@ -1,8 +1,7 @@
-import gym
 import torch
 import cv2
 import numpy as np
-from train import DuelingResNet
+from utils import DuelingResNet
 from collections import deque
 # Do not modify the input of the 'act' function and the '__init__' function. 
 class Agent(object):
