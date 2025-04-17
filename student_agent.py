@@ -2,21 +2,22 @@ import torch
 import cv2
 import numpy as np
 from utils import DuelingResNet
+import utils
 from collections import deque
 # Do not modify the input of the 'act' function and the '__init__' function. 
 class Agent(object):
-    """Agent that acts randomly."""
     def __init__(self):
-        self.device = 'cpu'
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = DuelingResNet(in_channels=4, n_actions=12).to(self.device)
         checkpoint = torch.load(
-            "checkpoints/checkpoint_ep99.pt",
+            "best.pt",
             map_location=self.device, 
             weights_only=True
         )
         self.model.load_state_dict(checkpoint['policy_state_dict'])
         self.model.eval()
         self.frame_queue = deque(maxlen=4)
+        self.step = 0
     
     def preprocess(self, obs):
         gray = cv2.cvtColor(obs, cv2.COLOR_RGB2GRAY)
@@ -25,6 +26,7 @@ class Agent(object):
     
     def act(self, observation):
         frame = self.preprocess(observation)
+        # utils.plot_grayscale(frame, f'frame_{self.step}.png')
         self.frame_queue.append(frame)
         
         while len(self.frame_queue) < 4:
@@ -36,4 +38,5 @@ class Agent(object):
         with torch.no_grad():
             q_values = self.model(tensor)
             action = q_values.argmax(dim=1).item()
+        self.step += 1
         return action

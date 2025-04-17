@@ -46,11 +46,12 @@ def init_env():
     env = FrameStack(env, 4)
     return env
 
-def plot_grayscale(state):
+def plot_grayscale(state, path='grayscale.png'):
     plt.figure(figsize=(3,3))
     plt.axis("off")
     plt.imshow(state, cmap="gray", vmin=0, vmax=255)
-    plt.savefig('grayscale.png')
+    plt.savefig(path)
+    plt.close()
 
 def plot_scores(episodic_scores, average_scores, config, filename="train.png"):
     """
