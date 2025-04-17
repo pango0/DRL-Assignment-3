@@ -8,9 +8,13 @@ from collections import deque
 class Agent(object):
     """Agent that acts randomly."""
     def __init__(self):
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = 'cpu'
         self.model = DuelingResNet(in_channels=4, n_actions=12).to(self.device)
-        checkpoint = torch.load("checkpoints/policy_latest.pt", map_location=self.device)
+        checkpoint = torch.load(
+            "checkpoints/checkpoint_ep99.pt",
+            map_location=self.device, 
+            weights_only=True
+        )
         self.model.load_state_dict(checkpoint['policy_state_dict'])
         self.model.eval()
         self.frame_queue = deque(maxlen=4)
