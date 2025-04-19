@@ -4,13 +4,17 @@ import numpy as np
 from utils import DuelingResNet
 import utils
 from collections import deque
+import gdown
 # Do not modify the input of the 'act' function and the '__init__' function. 
+# https://drive.google.com/file/d/1lWNzVSqpBE39WDeAo2vLpH7qONd7W6QD/view?usp=sharing
+gdown.download('https://drive.google.com/uc?id=1lWNzVSqpBE39WDeAo2vLpH7qONd7W6QD', 'weights.pt')
 class Agent(object):
     def __init__(self):
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = 'cpu'
         self.model = DuelingResNet(in_channels=4, n_actions=12).to(self.device)
         checkpoint = torch.load(
-            "best.pt",
+            "weights.pt",
             map_location=self.device, 
             weights_only=True
         )
