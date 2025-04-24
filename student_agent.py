@@ -22,7 +22,7 @@ class Agent(object):
         self.device = "cpu"   # change to "cuda" if permitted
         self.model  = DuelingCNN(in_channels=4, n_actions=12).to(self.device)
         checkpoint  = torch.load(
-            "checkpoints/2-checkpoint_ep8200.pt",
+            "weights.pt",
             map_location=self.device,
             weights_only=True
         )
