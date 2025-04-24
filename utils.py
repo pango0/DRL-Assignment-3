@@ -9,6 +9,8 @@ from gym_super_mario_bros.actions import COMPLEX_MOVEMENT
 import torch.nn as nn
 import torchvision.models as models
 import warnings
+import torch
+import torch.nn.functional as F
 warnings.filterwarnings("ignore", category=UserWarning)
 
 class DuelingResNet(nn.Module):
@@ -31,17 +33,77 @@ class DuelingResNet(nn.Module):
         )
         
     def forward(self, x):
-        x = x / 255.0
+        x = x.astype(np.float32) / 255.0
         feat = self.backbone(x).view(x.size(0), -1)
         value = self.value_stream(feat)
         adv   = self.adv_stream(feat)
         q = value + adv - adv.mean(dim=1, keepdim=True)
         return q
 
+
+class DuelingCNN(nn.Module):
+    """
+    DeepMind-style CNN + dueling head
+    -------------------------------------------------
+    Input   : 4 × 84 × 84  (stack of 4 gray frames)
+    Conv1   : 32  @ 8×8   s=4   → 32 × 20 × 20
+    Conv2   : 64  @ 4×4   s=2   → 64 ×  9 ×  9
+    Conv3   : 64  @ 3×3   s=1   → 64 ×  7 ×  7
+    Flatten : 64·7·7 = 3136
+    FC      : 512  (shared)
+    Value   : 512 → 1
+    Advantage: 512 → n_actions
+    -------------------------------------------------
+    Q(s,a)  = V(s) + A(s,a) − mean_a A(s,a)
+    """
+    def __init__(self, in_channels: int, n_actions: int):
+        super().__init__()
+
+        # -------- convolutional backbone (DeepMind) ------------------------
+        self.conv1 = nn.Conv2d(in_channels, 32, kernel_size=8, stride=4)
+        self.conv2 = nn.Conv2d(32,         64, kernel_size=4, stride=2)
+        self.conv3 = nn.Conv2d(64,         64, kernel_size=3, stride=1)
+
+        # -------- fully-connected layer (shared) --------------------------
+        self.flatten = nn.Flatten()
+        self.fc      = nn.Linear(64 * 7 * 7, 512)
+
+        # -------- dueling streams ----------------------------------------
+        self.value_head      = nn.Linear(512, 1)
+        self.advantage_head  = nn.Linear(512, n_actions)
+
+        # -------- optional: DeepMind-style weight init -------------------
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_uniform_(m.weight, nonlinearity='relu')
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.kaiming_uniform_(m.weight, nonlinearity='relu')
+                nn.init.constant_(m.bias, 0)
+
+    # ---------------------------------------------------------------------
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Input expected in [0,255] uint8 → scale to [0,1]
+        x = x.float() / 255.0
+
+        x = F.relu(self.conv1(x))
+        x = F.relu(self.conv2(x))
+        x = F.relu(self.conv3(x))
+
+        x = self.flatten(x)            # B × 3136
+        x = F.relu(self.fc(x))         # B × 512
+
+        value      = self.value_head(x)          # B × 1
+        advantage  = self.advantage_head(x)      # B × n_actions
+
+        # Combine streams: Q(s,a) = V + A − mean(A)
+        q = value + advantage - advantage.mean(dim=1, keepdim=True)
+        return q
+    
 def init_env():
     env = gym_super_mario_bros.make('SuperMarioBros-v0')
     env = JoypadSpace(env, COMPLEX_MOVEMENT)
-    # env = PreprocessFrame(env, (240, 256))
+    env = SkipFrame(env, 4)
     env = PreprocessFrame(env, (84, 84))
     env = FrameStack(env, 4)
     return env
@@ -108,3 +170,37 @@ class FrameStack(gym.Wrapper):
         obs, reward, done, info = self.env.step(action)
         self.frames.append(obs)
         return np.concatenate(self.frames, axis=2), reward, done, info
+
+class SkipFrame(gym.Wrapper):
+    """
+    Repeat the chosen action `skip` times.
+    Returns:
+        obs  : observation from the *last* underlying env.step
+        reward: sum of rewards over the skipped frames
+        done : True if any step ended the episode or life was lost
+        info : info dict *before* the skipped action (cached)
+    """
+    def __init__(self, env, skip: int = 4):
+        super().__init__(env)
+        self.skip = skip
+
+    # ---------------------------------------------------------------
+    def reset(self, **kwargs):
+        obs = self.env.reset(**kwargs)
+        return obs
+
+    # ---------------------------------------------------------------
+    def step(self, action):
+        total_reward = 0.0
+        done         = False
+        for _ in range(self.skip):
+            obs, reward, done, info = self.env.step(action)
+            total_reward += reward
+            
+            if reward == -15:
+                done = True
+
+            if done:
+                break
+
+        return obs, np.sign(total_reward), done, info
