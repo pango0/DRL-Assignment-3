@@ -5,8 +5,9 @@ from collections import deque
 from utils import DuelingCNN          # or DuelingResNet if you prefer
 import utils
 import gdown                       # leave here if you actually need to download the weights
-
-gdown.download('https://drive.google.com/uc?id=1gh9I6WG3Rh88f49xqKidXSlDRVQjKwZx', 'weights.pt')
+# https://drive.google.com/file/d/1uHBw6_k69TOyzZ51Gh4B8xVbbYDqUesC/view?usp=sharing
+gdown.download('https://drive.google.com/uc?id=1uHBw6_k69TOyzZ51Gh4B8xVbbYDqUesC', 'stage-1.pt')
+gdown.download('https://drive.google.com/uc?id=1CI3bzlEynd3obMB5ZxiSzQHzqU4QcsQv', 'stage-2.pt')
 # https://drive.google.com/file/d/1gh9I6WG3Rh88f49xqKidXSlDRVQjKwZx/view?usp=sharing
 class Agent(object):
     """
@@ -18,16 +19,30 @@ class Agent(object):
     on **every** call, so the input/output signature remains unchanged.
     """
     def __init__(self):
+        self.step = 0
         # ----- model & device -------------------------------------------------
         self.device = "cpu"   # change to "cuda" if permitted
-        self.model  = DuelingCNN(in_channels=4, n_actions=12).to(self.device)
-        checkpoint  = torch.load(
-            "weights.pt",
+        self.stage_1_model  = DuelingCNN(in_channels=4, n_actions=12).to(self.device)
+        self.stage_2_model  = DuelingCNN(in_channels=4, n_actions=12).to(self.device)
+        checkpoint_1 = torch.load(
+            "stage-1.pt",
             map_location=self.device,
             weights_only=True
         )
-        self.model.load_state_dict(checkpoint["policy_state_dict"])
-        self.model.eval()
+        checkpoint_2 = torch.load(
+            "stage-2.pt",
+            map_location=self.device,
+            weights_only=True
+        )
+        self.stage_1_model.load_state_dict(checkpoint_1["policy_state_dict"])
+        self.stage_2_model.load_state_dict(checkpoint_2["policy_state_dict"])
+        self.stage_1_model.eval()
+        self.stage_2_model.eval()
+        
+        self.model = self.stage_1_model
+        self.stage2_at_step = 2002
+        
+        # self.stage_2_start_state = np.load("stage-2_state.npy")
         
         # ----- frame processing ----------------------------------------------
         self.frame_queue = deque(maxlen=4)    # holds last 4 pre‑processed frames
@@ -55,6 +70,17 @@ class Agent(object):
         Called once **per raw frame** by the evaluation harness.
         Returns one discrete action (int) every time.
         """
+        if self.step == self.stage2_at_step:
+            # ----- swap models
+            self.model = self.stage_2_model      # ← all following calls use stage-2
+            # ----- reset every per-episode buffer you care about
+            self.frame_queue.clear()             # throw away old frames
+            self._frames_left    = 0             # cancel any action skip window
+            self._latched_action = 0
+            print("[INFO] Switched to stage-2 model at step",
+                  self.stage2_at_step, flush=True)
+            
+        self.step           += 1
         # ------------------------------------------------------------------
         # 1.  If we're inside a skip window, reuse the latched action
         # ------------------------------------------------------------------
@@ -88,5 +114,5 @@ class Agent(object):
         # ------------------------------------------------------------------
         self._latched_action = action
         self._frames_left    = self.skip - 1
-        self.step           += 1
+
         return action
